@@ -643,11 +643,11 @@ elif page == "🗣️ 의견 나누기":
     cur = conn.cursor()
     if filter_q == "전체 보기":
         rows = cur.execute(
-            "SELECT name, question, opinion, created_at FROM opinions ORDER BY id DESC"
+            "SELECT id, name, question, opinion, created_at FROM opinions ORDER BY id DESC"
         ).fetchall()
     else:
         rows = cur.execute(
-            "SELECT name, question, opinion, created_at FROM opinions WHERE question = ? ORDER BY id DESC",
+            "SELECT id, name, question, opinion, created_at FROM opinions WHERE question = ? ORDER BY id DESC",
             (filter_q,),
         ).fetchall()
 
@@ -655,21 +655,31 @@ elif page == "🗣️ 의견 나누기":
         st.info("아직 등록된 의견이 없습니다. 첫 의견을 남겨보세요!")
     else:
         st.caption(f"현재 {len(rows)}개의 의견이 등록되어 있습니다.")
-        for name, question, opinion, created_at in rows:
+        for row_id, name, question, opinion, created_at in rows:
             safe_name = html.escape(name)
             safe_question = html.escape(question)
             safe_opinion = html.escape(opinion).replace("\n", "<br>")
-            st.markdown(
-                f"""<div class="q-card">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <b>{safe_name}</b>
-                        <span style="color:var(--ink-soft); font-size:.8rem;">{created_at}</span>
-                    </div>
-                    <div class="passage-source" style="margin:.3rem 0;">{safe_question}</div>
-                    <p style="margin-top:.4rem; white-space:normal;">{safe_opinion}</p>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            card_col, del_col = st.columns([9, 1])
+            with card_col:
+                st.markdown(
+                    f"""<div class="q-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <b>{safe_name}</b>
+                            <span style="color:var(--ink-soft); font-size:.8rem;">{created_at}</span>
+                        </div>
+                        <div class="passage-source" style="margin:.3rem 0;">{safe_question}</div>
+                        <p style="margin-top:.4rem; white-space:normal;">{safe_opinion}</p>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+            with del_col:
+                with st.popover("🗑️", use_container_width=True):
+                    st.write(f"**{safe_name}**님의 의견을 삭제할까요?")
+                    st.caption("잘못 작성했거나 실수로 올린 의견을 지울 때 사용하세요. 삭제하면 되돌릴 수 없어요.")
+                    if st.button("삭제 확인", key=f"confirm_delete_{row_id}", type="primary"):
+                        conn.execute("DELETE FROM opinions WHERE id = ?", (row_id,))
+                        conn.commit()
+                        st.rerun()
 
     conn.close()
 
