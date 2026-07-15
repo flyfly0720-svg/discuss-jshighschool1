@@ -31,10 +31,15 @@ def get_connection():
             name TEXT NOT NULL,
             question TEXT NOT NULL,
             opinion TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            likes INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+    # 이전 버전 DB 파일(likes 컬럼 없음)과 호환되도록 안전하게 마이그레이션
+    existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(opinions)").fetchall()]
+    if "likes" not in existing_cols:
+        conn.execute("ALTER TABLE opinions ADD COLUMN likes INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     return conn
 
@@ -639,15 +644,17 @@ elif page == "🗣️ 의견 나누기":
             st.rerun()
 
     filter_q = st.selectbox("논제별로 필터링해서 보기", ["전체 보기"] + question_options, key="filter_q")
+    sort_order = st.radio("정렬 기준", ["최신순", "공감순"], horizontal=True, key="sort_order")
+    order_clause = "likes DESC, id DESC" if sort_order == "공감순" else "id DESC"
 
     cur = conn.cursor()
     if filter_q == "전체 보기":
         rows = cur.execute(
-            "SELECT id, name, question, opinion, created_at FROM opinions ORDER BY id DESC"
+            f"SELECT id, name, question, opinion, created_at, likes FROM opinions ORDER BY {order_clause}"
         ).fetchall()
     else:
         rows = cur.execute(
-            "SELECT id, name, question, opinion, created_at FROM opinions WHERE question = ? ORDER BY id DESC",
+            f"SELECT id, name, question, opinion, created_at, likes FROM opinions WHERE question = ? ORDER BY {order_clause}",
             (filter_q,),
         ).fetchall()
 
@@ -655,11 +662,11 @@ elif page == "🗣️ 의견 나누기":
         st.info("아직 등록된 의견이 없습니다. 첫 의견을 남겨보세요!")
     else:
         st.caption(f"현재 {len(rows)}개의 의견이 등록되어 있습니다.")
-        for row_id, name, question, opinion, created_at in rows:
+        for row_id, name, question, opinion, created_at, likes in rows:
             safe_name = html.escape(name)
             safe_question = html.escape(question)
             safe_opinion = html.escape(opinion).replace("\n", "<br>")
-            card_col, del_col = st.columns([9, 1])
+            card_col, action_col = st.columns([8, 1.6])
             with card_col:
                 st.markdown(
                     f"""<div class="q-card">
@@ -669,11 +676,16 @@ elif page == "🗣️ 의견 나누기":
                         </div>
                         <div class="passage-source" style="margin:.3rem 0;">{safe_question}</div>
                         <p style="margin-top:.4rem; white-space:normal;">{safe_opinion}</p>
+                        <span class="tag">👍 공감 {likes}</span>
                     </div>""",
                     unsafe_allow_html=True,
                 )
-            with del_col:
-                with st.popover("🗑️", use_container_width=True):
+            with action_col:
+                if st.button("👍 공감해요", key=f"like_{row_id}", use_container_width=True):
+                    conn.execute("UPDATE opinions SET likes = likes + 1 WHERE id = ?", (row_id,))
+                    conn.commit()
+                    st.rerun()
+                with st.popover("🗑️ 삭제", use_container_width=True):
                     st.write(f"**{safe_name}**님의 의견을 삭제할까요?")
                     st.caption("잘못 작성했거나 실수로 올린 의견을 지울 때 사용하세요. 삭제하면 되돌릴 수 없어요.")
                     if st.button("삭제 확인", key=f"confirm_delete_{row_id}", type="primary"):
