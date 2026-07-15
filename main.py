@@ -873,6 +873,6 @@ elif page == "🕰️ 토론 진행 도구":
 # ============================================================
 
 st.markdown(
-    f"""<div class="footer-note">고전에 묻다 · 학급 독서토론용 웹앱 · 생성일 {datetime.now().strftime('%Y-%m-%d')}</div>""",
+    f"""<div class="footer-note">고전에 묻다 · made by 서재원 학급 독서토론용 웹앱 · 생성일 {datetime.now().strftime('%Y-%m-%d')}</div>""",
     unsafe_allow_html=True,
 )
