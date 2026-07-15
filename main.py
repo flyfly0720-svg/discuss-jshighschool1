@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 고전에 묻다 — 문학·질문·쓸모에 관한 독서토론실
@@ -10,12 +9,34 @@
     streamlit run reading_discussion_app.py
 """
 
+import html
 import random
+import sqlite3
 import textwrap
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
+
+DB_PATH = Path(__file__).parent / "opinions.db"
+
+
+def get_connection():
+    """매 호출마다 새 커넥션을 열어, 서로 다른 학생의 세션(스레드) 간 충돌을 피한다."""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS opinions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            question TEXT NOT NULL,
+            opinion TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    return conn
 
 # ============================================================
 # 0. 페이지 설정 & 디자인 (한지 + 먹 + 낙관 인장 콘셉트)
@@ -46,7 +67,15 @@ CUSTOM_CSS = """
 
 html, body, [class*="css"] { font-family: 'Noto Sans KR', sans-serif; }
 
-.stApp { background-color: var(--paper); }
+.stApp { background-color: var(--paper); color: var(--ink); }
+.stApp p, .stApp li, .stApp span, .stApp label, .stApp div { color: var(--ink); }
+[data-testid="stWidgetLabel"] p { color: var(--ink) !important; }
+[data-testid="stMarkdownContainer"] { color: var(--ink); }
+.stTextArea textarea, .stTextInput input, .stNumberInput input {
+    background-color: var(--paper-card) !important; color: var(--ink) !important;
+}
+[data-baseweb="select"] * { color: var(--ink) !important; }
+[data-testid="stAlert"] p { color: var(--ink) !important; }
 
 section[data-testid="stSidebar"] {
     background-color: var(--jade);
@@ -346,24 +375,36 @@ EXTENDED_QUESTIONS = {
 
 BOOKS = {
     "문학은 왜 필요한가 — (가) 확장": [
-        ("행복한 책읽기", "김현", "이 지문의 저자가 남긴 독서 일기. 문학을 대하는 태도와 무용성에 대한 사유를 원문으로 더 만나볼 수 있습니다."),
-        ("문학이란 무엇인가", "장 폴 사르트르", "문학의 사회적 효용과 참여문학 논쟁을 다뤄 (가)의 '억압하지 않는 문학'과 대비해 읽기 좋습니다."),
-        ("무한한 대화", "모리스 블랑쇼", "문학이 어떻게 세계를 직접 바꾸지 않으면서도 인간의 인식을 흔드는지 철학적으로 파고드는 책입니다."),
+        ("행복한 책읽기", "김현", "이 지문 저자가 남긴 독서 일기",
+         "비평가 김현이 세상을 떠나기 전인 1985년 12월부터 1989년 12월까지 4년간 쓴 사적인 일기 모음이다. 그날그날 읽은 책과 본 영화에 대한 짧은 단상부터, 다가오는 죽음을 마주하며 삶을 돌아보는 깊은 사유까지 담겨 있다. 논리적인 비평문과는 다른 결의 글이라, (가) 지문에서 문학의 무용함과 억압하지 않는 힘을 말한 저자의 육성을 훨씬 더 가까이서 만날 수 있다."),
+        ("문학이란 무엇인가", "장 폴 사르트르 (정명환 옮김)", "참여문학의 입장에서 본 문학론",
+         "사르트르가 1947년 발표한 문학론으로, 글을 쓰고 읽는다는 것이 세계에 대한 하나의 태도를 드러내는 행위이며, 작가는 그 글을 통해 독자의 자유에 호소한다고 주장한다. '문학이 무엇을 할 수 있는가'라는 질문에 참여문학의 입장에서 정면으로 답하는 책으로, 문학이 아무것도 구하지 못한다는 (가)의 무용론과 나란히 놓고 비교하며 읽으면 좋은 대조를 이룬다."),
+        ("무한한 대화", "모리스 블랑쇼", "끝나지 않는 '대화'로서의 문학",
+         "블랑쇼가 1969년에 펴낸 문학·언어론 모음집이다. 그는 문학을 하나의 결론으로 정리되지 않는 끝없는 '대화'로 보고, 파편적으로 이어지는 글쓰기가 어떻게 고정된 의미와 전체화된 담론에서 벗어나 세계를 새롭게 사유하게 하는지를 탐구한다. 다소 밀도가 높은 철학서이지만, (가)에서 말하는 문학의 무용함과 저항의 힘이라는 문제의식을 훨씬 더 깊은 층위로 확장해서 읽을 수 있게 해준다."),
     ],
     "질문과 사유의 힘 — (나) 확장": [
-        ("소크라테스의 변명", "플라톤", "'질문하는 삶'의 원형을 보여주는 고전. (나)에서 말하는 질문의 능동성을 역사적으로 확인할 수 있습니다."),
-        ("생각의 지도", "리처드 니스벳", "질문하고 사유하는 방식 자체가 문화와 개인마다 다르다는 점을 다뤄, '질문'을 다른 각도에서 보게 합니다."),
-        ("무지한 스승", "자크 랑시에르", "정해진 답을 주입하지 않고 스스로 질문하게 하는 교육에 대한 논의로, (나)의 문제의식과 맞닿아 있습니다."),
+        ("소크라테스의 변명", "플라톤", "질문하는 삶의 원형",
+         "사형 재판에 선 소크라테스가 자신을 변호하며 남긴 말을 제자 플라톤이 기록한 대화편이다. 그는 '캐묻지 않는 삶은 살 가치가 없다'고 말하며, 죽음 앞에서도 끝까지 질문을 멈추지 않는 태도를 보여준다. 정해진 권위와 통념에 안주하지 않고 스스로 묻는 사람이 되라는 이 책의 메시지는, (나)에서 말하는 '질문하는 삶'의 원형을 역사 속 실제 인물을 통해 확인하게 해준다."),
+        ("생각의 지도", "리처드 니스벳 (최인철 옮김)", "동서양의 서로 다른 사고방식",
+         "심리학자 리처드 니스벳이 동양과 서양이 세계를 인식하고 사고하는 방식 자체가 다르다는 것을 여러 심리 실험을 통해 실증적으로 보여주는 책이다. 우리가 당연하다고 여기는 사고방식조차 문화적으로 형성된 습관일 수 있다는 사실은, '질문하지 않으면 정해진 개념을 무조건 받아들이게 된다'는 (나)의 주장을 다른 각도에서, 더 넓은 시야로 다시 생각해보게 만든다."),
+        ("무지한 스승", "자크 랑시에르 (양창렬 옮김)", "스스로 배우는 지적 해방",
+         "랑시에르가 19세기 프랑스 교사 조제프 자코토의 실험적 교육 사례를 바탕으로 쓴 교육철학서다. 그는 가르치는 사람이 지식을 일방적으로 주입하지 않아도, 배우는 사람이 스스로 지적 능력을 발휘해 알아갈 수 있다는 '지적 해방'을 주장한다. 이미 정해진 개념과 권위를 그대로 받아들이지 않는다는 (나)의 질문 정신을, 교육이라는 구체적인 장면 속에서 다시 확인할 수 있는 책이다."),
     ],
     "장자와 무용지용 — (다) 확장": [
-        ("장자, 차이를 넘어서는 지혜", "최진석", "장자 철학의 '쓸모없음의 쓸모'와 '완전한 올바름'을 현대적으로 풀어낸 해설서입니다."),
-        ("장자", "오강남 풀이", "원문 우화들을 알기 쉬운 우리말로 옮긴 대중적 번역서로, (다) 지문의 뒷이야기와 다른 우화들도 함께 읽을 수 있습니다."),
-        ("숲에서 자본주의를 껴안다", "사토 요시유키·다나카 히로히로", "'쓸모없음'을 경제적 효용의 반대편에서 다시 사유하게 하는 현대적 텍스트입니다."),
+        ("삶의 실력, 장자", "최진석", "강의로 풀어낸 장자 철학",
+         "동양철학자 최진석이 강의를 바탕으로 펴낸 장자 해설서다. 사람들이 흔히 오해하는 것과 달리 장자는 현실에서 도피한 사람이 아니라, 세상이 정해준 틀에 자신을 가두지 않고 끊임없이 내면의 두께를 단련해간 사람이라고 설명한다. 쓸모 있음과 쓸모없음의 경계마저 넘어서는 (다)의 '완전한 올바름'이라는 개념을, 오늘날의 언어로 훨씬 쉽게 풀어 이해할 수 있게 도와주는 입문서다."),
+        ("장자", "오강남 풀이", "원문 우화 모음과 해설",
+         "동양철학자 오강남이 장자 원문의 여러 우화들을 알기 쉬운 우리말로 옮기고 친절한 해설을 붙인 대중적인 책이다. (다) 지문에 나온 쓸모없는 나무와 우는 거위 이야기 외에도, 나비의 꿈이나 우물 안 개구리 같은 장자의 다른 유명한 우화들을 함께 읽으며 '무용지용'과 '완전한 올바름'에 관한 사유를 훨씬 더 폭넓고 깊게 확인할 수 있다."),
+        ("숲에서 자본주의를 껴안다", "모타니 고스케 · NHK히로시마 취재팀", "쓸모없던 자원의 재발견",
+         "지역경제학자 모타니 고스케와 NHK 히로시마 취재팀이 일본의 산골 마을을 직접 취재해 쓴 책이다. 그동안 버려지던 목재 폐기물을 연료로 재활용하는 등, 아무 쓸모가 없다고 여겨지던 자원을 되살려 돈에 크게 의존하지 않는 경제 공동체를 되살리는 실제 사례들을 보여준다. 무엇을 '쓸모없다'고 규정할지 그 기준 자체를 다시 묻게 만드는, 매우 현실적인 사례 모음이다."),
     ],
     "과학자의 책임과 윤리 — (라) 확장": [
-        ("과학자의 사회적 책임", "하인츠 페이겔스 계열의 과학사 논의", "과학 지식이 사회에 미치는 영향과 과학자 윤리를 정면으로 다루는 주제의 대표적 논의 흐름입니다."),
-        ("코스모스", "칼 세이건", "과학이 인류에게 어떤 의미인지, 과학자의 성찰적 태도를 함께 보여주는 교양 과학서의 고전입니다."),
-        ("침묵의 봄", "레이첼 카슨", "한 과학자의 문제 제기가 사회를 바꾼 사례로, (라)의 '반성적 사고 → 사회적 실천' 흐름과 비교하며 읽기 좋습니다."),
+        ("천 개의 태양보다 밝은", "로베르트 융크 (이충호 옮김)", "원자과학자들의 도덕적 갈등",
+         "로베르트 융크가 1956년에 쓴 논픽션으로, 원자폭탄 개발에 직접 참여했던 과학자들과의 인터뷰를 바탕으로 그들이 느낀 지적 열광과 두려움, 그리고 뒤늦게 찾아온 도덕적 갈등을 생생하게 기록했다. 조국을 위한다는 생각으로 무기 개발에 매진하다가 시간이 지나 자신의 판단을 되짚어본 사하로프의 행적을, 훨씬 더 구체적인 역사적 맥락 속에서 이해하게 해주는 책이다."),
+        ("코스모스", "칼 세이건", "과학자의 겸허함과 책임감",
+         "천문학자 칼 세이건이 우주의 탄생부터 인류 문명의 역사까지를 넘나들며 쓴 대중 과학서의 고전이다. 과학이 인류에게 안겨주는 경이로움을 생생히 전하는 동시에, 그 강력한 지식을 다루는 인간이 마땅히 지녀야 할 겸허함과 책임감에 대해서도 이야기한다. 과학기술자의 반성적 사고를 강조하는 (라)의 문제의식과 나란히 두고 읽기에 좋은 책이다."),
+        ("침묵의 봄", "레이첼 카슨", "반성적 사고가 바꾼 정책",
+         "해양생물학자 레이첼 카슨이 1962년에 발표한 책으로, 살충제 DDT가 새와 곤충을 비롯한 생태계 전체를 어떻게 서서히 파괴하는지를 치밀한 과학적 근거로 고발했다. 대중과 산업계의 거센 반발에도 자신의 연구 결과를 굽히지 않고 알린 한 과학자의 문제 제기가 실제로 사회와 정책을 바꾼 사례로, (라)가 말하는 '반성적 사고에서 사회적 실천으로'라는 흐름을 구체적으로 보여준다."),
     ],
 }
 
@@ -380,6 +421,7 @@ page = st.sidebar.radio(
         "📖 지문 읽기",
         "🧭 핵심 개념 해설",
         "💬 토론 질문",
+        "🗣️ 의견 나누기",
         "✍️ 논술 가이드",
         "📚 추천 도서",
         "🕰️ 토론 진행 도구",
@@ -558,6 +600,80 @@ elif page == "💬 토론 질문":
             )
 
 # ============================================================
+# 페이지: 의견 나누기 (친구들과 실시간 누적 공유)
+# ============================================================
+
+elif page == "🗣️ 의견 나누기":
+    st.header("🗣️ 의견 나누기")
+    st.caption(
+        "이름과 의견을 남기면, 이 웹앱에 접속한 학급 친구들 모두가 함께 볼 수 있어요. "
+        "(같은 서버 주소로 접속했을 때만 서로의 의견이 공유됩니다.)"
+    )
+
+    conn = get_connection()
+    question_options = [f"{q['num']} — {q['q']}" for q in OFFICIAL_QUESTIONS] + ["기타 (자유 주제)"]
+
+    with st.form("opinion_form", clear_on_submit=True):
+        name = st.text_input("이름", placeholder="예: 김민준")
+        chosen_q = st.selectbox("어떤 논제에 대한 의견인가요?", question_options)
+        opinion = st.text_area("내 의견", height=120, placeholder="이 논제에 대한 나의 생각을 자유롭게 적어보세요.")
+        submitted = st.form_submit_button("✍️ 의견 남기기", type="primary")
+        if submitted:
+            if not name.strip() or not opinion.strip():
+                st.warning("이름과 의견을 모두 입력해주세요.")
+            else:
+                conn.execute(
+                    "INSERT INTO opinions (name, question, opinion, created_at) VALUES (?, ?, ?, ?)",
+                    (name.strip(), chosen_q, opinion.strip(), datetime.now().strftime("%Y-%m-%d %H:%M")),
+                )
+                conn.commit()
+                st.success("의견이 등록되었습니다! 아래 목록에서 바로 확인할 수 있어요.")
+
+    st.markdown("<hr class='ink-rule'>", unsafe_allow_html=True)
+
+    top_col1, top_col2 = st.columns([3, 1])
+    with top_col1:
+        st.subheader("📋 친구들이 남긴 의견 모아보기")
+    with top_col2:
+        if st.button("🔄 새로고침", use_container_width=True):
+            st.rerun()
+
+    filter_q = st.selectbox("논제별로 필터링해서 보기", ["전체 보기"] + question_options, key="filter_q")
+
+    cur = conn.cursor()
+    if filter_q == "전체 보기":
+        rows = cur.execute(
+            "SELECT name, question, opinion, created_at FROM opinions ORDER BY id DESC"
+        ).fetchall()
+    else:
+        rows = cur.execute(
+            "SELECT name, question, opinion, created_at FROM opinions WHERE question = ? ORDER BY id DESC",
+            (filter_q,),
+        ).fetchall()
+
+    if not rows:
+        st.info("아직 등록된 의견이 없습니다. 첫 의견을 남겨보세요!")
+    else:
+        st.caption(f"현재 {len(rows)}개의 의견이 등록되어 있습니다.")
+        for name, question, opinion, created_at in rows:
+            safe_name = html.escape(name)
+            safe_question = html.escape(question)
+            safe_opinion = html.escape(opinion).replace("\n", "<br>")
+            st.markdown(
+                f"""<div class="q-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <b>{safe_name}</b>
+                        <span style="color:var(--ink-soft); font-size:.8rem;">{created_at}</span>
+                    </div>
+                    <div class="passage-source" style="margin:.3rem 0;">{safe_question}</div>
+                    <p style="margin-top:.4rem; white-space:normal;">{safe_opinion}</p>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    conn.close()
+
+# ============================================================
 # 페이지: 논술 가이드
 # ============================================================
 
@@ -615,16 +731,18 @@ elif page == "📚 추천 도서":
     for theme, books in BOOKS.items():
         st.markdown(f"### {theme}")
         cols = st.columns(len(books))
-        for col, (title, author, reason) in zip(cols, books):
+        for col, (title, author, reason, summary) in zip(cols, books):
             with col:
                 st.markdown(
                     f"""<div class="book-card">
                         <div class="book-title">{title}</div>
                         <div class="book-author">{author}</div>
-                        <div style="font-size:.88rem; color:var(--ink); line-height:1.5;">{reason}</div>
+                        <span class="tag">{reason}</span>
                     </div>""",
                     unsafe_allow_html=True,
                 )
+                with st.expander("책 내용 요약 보기"):
+                    st.write(summary)
         st.markdown("")
 
 # ============================================================
@@ -726,7 +844,7 @@ elif page == "🕰️ 토론 진행 도구":
             updateDisplay();
         </script>
         """
-        components.html(timer_html, height=180)
+        st.iframe(timer_html, height=180)
 
 # ============================================================
 # 공통 푸터
